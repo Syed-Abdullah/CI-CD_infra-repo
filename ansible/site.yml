@@ -1,0 +1,42 @@
+# =============================================================================
+# SITE PLAYBOOK — Main Entry Point
+# =============================================================================
+# This is the "master" playbook that orchestrates both server configurations.
+# It delegates work to roles:
+#   - jenkins_server role → applied to hosts in the [jenkins_server] group
+#   - kind_cluster role   → applied to hosts in the [kind_cluster] group
+#
+# A "role" is just a reusable bundle of tasks, organized into a standard
+# directory structure. Think of this playbook as a table of contents,
+# and each role as a chapter.
+#
+# Usage:
+#   ansible-playbook site.yml              # Configure ALL servers
+#   ansible-playbook site.yml -l jenkins   # Only configure Jenkins server
+#   ansible-playbook site.yml -l kind      # Only configure kind cluster
+# =============================================================================
+
+---
+# ============================================================
+# Play 1: Configure the Jenkins Server
+# ============================================================
+# This play targets all hosts in the [jenkins_server] inventory group.
+# It installs Docker and Jenkins, and ensures both services are running.
+# ============================================================
+- name: Configure Jenkins Server
+  hosts: jenkins_server
+  become: true  # Run tasks as root (needed for apt install, systemctl, etc.)
+  roles:
+    - jenkins_server
+
+# ============================================================
+# Play 2: Configure the Kind Cluster Server
+# ============================================================
+# This play targets all hosts in the [kind_cluster] inventory group.
+# It installs Docker, kubectl, and kind, then creates a K8s cluster.
+# ============================================================
+- name: Configure Kind Cluster
+  hosts: kind_cluster
+  become: true
+  roles:
+    - kind_cluster

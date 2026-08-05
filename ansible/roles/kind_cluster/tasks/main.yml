@@ -1,0 +1,236 @@
+# =============================================================================
+# KIND CLUSTER ROLE — Main Tasks
+# =============================================================================
+# This role installs Docker, kubectl, and kind on the kind cluster server,
+# then creates a Kubernetes cluster using kind with NodePort mapping.
+#
+# What each section does (in order):
+#   1. Install prerequisite packages
+#   2. Install Docker CE (same process as Jenkins server)
+#   3. Install kubectl (the Kubernetes CLI)
+#   4. Install kind (Kubernetes IN Docker)
+#   5. Create a kind cluster config with extraPortMappings for NodePort 30001
+#   6. Create the kind cluster
+# =============================================================================
+
+---
+# ============================================================
+# STEP 1: Update apt cache and install prerequisites
+# ============================================================
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install prerequisite packages
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - software-properties-common
+    state: present
+
+# ============================================================
+# STEP 2: Install Docker CE
+# ============================================================
+# Same process as the Jenkins server — Docker is needed because
+# kind runs Kubernetes nodes as Docker containers.
+# Without Docker, kind has nothing to run on.
+# ============================================================
+- name: Add Docker GPG key
+  shell: |
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg --yes
+    chmod a+r /etc/apt/keyrings/docker.gpg
+  args:
+    creates: /etc/apt/keyrings/docker.gpg
+
+- name: Add Docker apt repository
+  shell: |
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+  args:
+    creates: /etc/apt/sources.list.d/docker.list
+
+- name: Update apt cache after adding Docker repo
+  apt:
+    update_cache: yes
+
+- name: Install Docker CE
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Start and enable Docker service
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Add 'ubuntu' user to 'docker' group
+  user:
+    name: ubuntu
+    groups: docker
+    append: yes
+
+# ============================================================
+# STEP 3: Install kubectl
+# ============================================================
+# kubectl is the command-line tool for interacting with Kubernetes.
+# Think of it as the "remote control" for your cluster.
+# You use it to deploy apps, check pod status, view logs, etc.
+#
+# We install it from Google's official apt repository.
+# ============================================================
+- name: Add Kubernetes apt GPG key
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg --yes
+    chmod a+r /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Add Kubernetes apt repository
+  shell: |
+    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
+  args:
+    creates: /etc/apt/sources.list.d/kubernetes.list
+
+- name: Update apt cache after adding Kubernetes repo
+  apt:
+    update_cache: yes
+
+- name: Install kubectl
+  apt:
+    name: kubectl
+    state: present
+
+# ============================================================
+# STEP 4: Install kind (Kubernetes IN Docker)
+# ============================================================
+# kind lets you run a full Kubernetes cluster inside Docker containers.
+# Instead of needing real VMs for each K8s node, kind creates Docker
+# containers that act as Kubernetes nodes.
+#
+# This is perfect for:
+#   - CI/CD testing (spin up a cluster, test, tear it down)
+#   - Learning Kubernetes without cloud costs
+#   - Running Kubernetes on a single machine
+#
+# We download the kind binary directly from GitHub releases.
+# ============================================================
+- name: Download kind binary
+  get_url:
+    url: https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+    dest: /usr/local/bin/kind
+    mode: '0755'
+
+# ============================================================
+# STEP 5: Create kind cluster configuration
+# ============================================================
+# KIND NEEDS EXPLICIT PORT MAPPING TO EXPOSE NODEPORTS!
+#
+# By default, kind clusters are completely isolated inside Docker.
+# Even if a Kubernetes Service uses NodePort 30001, that port is only
+# accessible INSIDE the Docker network, not from the host or internet.
+#
+# To fix this, we use "extraPortMappings" in the kind config:
+#   containerPort: 30001  → the port INSIDE the kind Docker container
+#   hostPort: 30001       → the port ON THE HOST (the EC2 instance)
+#   protocol: TCP         → we're serving HTTP traffic
+#
+# This maps:
+#   Internet → EC2 public IP:30001 → Docker container:30001 → K8s NodePort:30001
+#
+# Without this config, the app would be unreachable from outside the server!
+# ============================================================
+- name: Create kind cluster config directory
+  file:
+    path: /home/ubuntu/kind-config
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Create kind cluster configuration file
+  copy:
+    content: |
+      # ================================================================
+      # Kind Cluster Configuration
+      # ================================================================
+      # This config creates a single-node Kubernetes cluster with
+      # NodePort 30001 mapped from the container to the host.
+      # ================================================================
+      kind: Cluster
+      apiVersion: kind.x-k8s.io/v1alpha4
+      nodes:
+        - role: control-plane
+          # Map NodePort 30001 from inside the kind container to the host.
+          # This is REQUIRED for external access to NodePort services.
+          extraPortMappings:
+            - containerPort: 30001
+              hostPort: 30001
+              protocol: TCP
+    dest: /home/ubuntu/kind-config/kind-cluster-config.yaml
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+
+# ============================================================
+# STEP 6: Create the kind cluster
+# ============================================================
+# This command:
+#   1. Pulls a special Docker image containing a Kubernetes node
+#   2. Creates a Docker container from that image
+#   3. Bootstraps a full Kubernetes cluster inside it
+#   4. Sets up kubeconfig so kubectl can connect to the cluster
+#
+# The --name flag gives the cluster a name (default is "kind").
+# The --config flag points to our port-mapping configuration.
+#
+# NOTE: We run this as the 'ubuntu' user, not root, so the kubeconfig
+# is saved in /home/ubuntu/.kube/config where the user can access it.
+# ============================================================
+- name: Check if kind cluster already exists
+  command: kind get clusters
+  register: existing_clusters
+  changed_when: false
+  become: false
+
+- name: Create kind cluster with port mapping
+  command: >
+    kind create cluster
+    --name cicd-demo
+    --config /home/ubuntu/kind-config/kind-cluster-config.yaml
+  become: false  # Run as ubuntu user, not root
+  when: "'cicd-demo' not in existing_clusters.stdout"
+
+# ============================================================
+# STEP 7: Verify the cluster is working
+# ============================================================
+# After creation, we run a quick health check to make sure
+# kubectl can communicate with the cluster and nodes are Ready.
+# ============================================================
+- name: Verify kind cluster is running
+  command: kubectl get nodes
+  register: kubectl_output
+  changed_when: false
+  become: false
+
+- name: Display cluster status
+  debug:
+    msg: |
+      ============================================================
+      KIND CLUSTER STATUS
+      ============================================================
+      {{ kubectl_output.stdout }}
+
+      Cluster name: cicd-demo
+      NodePort 30001 is mapped to host port 30001.
+      Deploy your app and access it at: http://<KIND_EIP>:30001
+      ============================================================

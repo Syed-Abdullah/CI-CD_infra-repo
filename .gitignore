@@ -1,0 +1,49 @@
+# ============================
+# Terraform
+# ============================
+# Local state files (we use remote backend, but just in case)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform variable files that may contain secrets
+*.tfvars
+!example.tfvars
+
+# Terraform plan output
+*.tfplan
+
+# ============================
+# Ansible
+# ============================
+# Retry files generated on playbook failure
+*.retry
+
+# ============================
+# SSH / Secrets
+# ============================
+# NEVER commit private keys or credentials
+*.pem
+*.key
+*.pub
+id_rsa
+id_ed25519
+kubeconfig
+.kube/
+
+# ============================
+# OS / Editor
+# ============================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
