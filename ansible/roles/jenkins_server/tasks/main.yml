@@ -36,6 +36,7 @@
       - curl
       - gnupg
       - software-properties-common
+      - git                 # Required by Jenkins for SCM checkouts in pipelines
       - fontconfig          # Required by Jenkins (Java font rendering)
       - openjdk-17-jre      # Jenkins requires Java 17+
     state: present
