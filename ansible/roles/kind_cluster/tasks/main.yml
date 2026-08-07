@@ -79,6 +79,13 @@
     groups: docker
     append: yes
 
+# Force Ansible to reconnect SSH so the new docker group membership
+# takes effect. Without this, subsequent tasks running as 'ubuntu'
+# (become: false) would still have the old group list and get
+# "permission denied" when accessing the Docker socket.
+- name: Reset SSH connection to pick up new group membership
+  meta: reset_connection
+
 # ============================================================
 # STEP 3: Install kubectl
 # ============================================================
