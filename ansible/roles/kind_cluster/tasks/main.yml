@@ -170,18 +170,20 @@
       # ================================================================
       # Kind Cluster Configuration
       # ================================================================
-      # This config creates a single-node Kubernetes cluster with
-      # NodePort 30001 mapped from the container to the host.
+      # This config creates a single-node Kubernetes cluster with:
+      #   - NodePort 30001 mapped for the application
+      #   - NodePort 30080 mapped for the ArgoCD Web UI
       # ================================================================
       kind: Cluster
       apiVersion: kind.x-k8s.io/v1alpha4
       nodes:
         - role: control-plane
-          # Map NodePort 30001 from inside the kind container to the host.
-          # This is REQUIRED for external access to NodePort services.
           extraPortMappings:
             - containerPort: 30001
               hostPort: 30001
+              protocol: TCP
+            - containerPort: 30080
+              hostPort: 30080
               protocol: TCP
     dest: /home/ubuntu/kind-config/kind-cluster-config.yaml
     owner: ubuntu
@@ -229,9 +231,62 @@
   changed_when: false
   become: false
 
-- name: Display cluster status
+
+# ============================================================
+# STEP 8: Install ArgoCD (GitOps Controller)
+# ============================================================
+# ArgoCD is the leading declarative GitOps continuous delivery
+# tool for Kubernetes. It runs inside the cluster and monitors
+# Git repositories for changes to application manifests,
+# automatically syncing desired state with the live cluster.
+# ============================================================
+- name: Create argocd namespace
+  shell: kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+  become: false
+
+- name: Install ArgoCD official components
+  shell: kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  become: false
+
+- name: Configure ArgoCD Server in insecure mode (HTTP on NodePort)
+  shell: |
+    kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.insecure":"true"}}'
+    kubectl rollout restart deployment argocd-server -n argocd
+  become: false
+
+- name: Patch ArgoCD Server Service to NodePort 30080
+  shell: |
+    kubectl patch svc argocd-server -n argocd --type merge -p '{"spec": {"type": "NodePort", "ports": [{"name": "http", "port": 80, "targetPort": 8080, "nodePort": 30080}]}}'
+  become: false
+
+- name: Wait for ArgoCD server deployment to be ready
+  shell: kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=180s
+  become: false
+  retries: 3
+  delay: 10
+  register: argocd_wait
+  until: argocd_wait is succeeded
+
+- name: Retrieve ArgoCD initial admin password
+  shell: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+  register: argocd_admin_password
+  become: false
+  changed_when: false
+  ignore_errors: yes
+
+- name: Display cluster and ArgoCD status
   debug:
     msg: |
+      ============================================================
+      KUBERNETES & ARGOCD GITOPS CLUSTER STATUS
+      ============================================================
+      {{ kubectl_output.stdout }}
+
+      Cluster Name: cicd-demo
+      Application URL: http://<KIND_EIP>:30001
+      ArgoCD Web UI:   http://<KIND_EIP>:30080
+      ArgoCD Username: admin
+      ArgoCD Password: {{ argocd_admin_password.stdout | default('Check with: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d') }}
       ============================================================
       KIND CLUSTER STATUS
       ============================================================
@@ -241,3 +296,4 @@
       NodePort 30001 is mapped to host port 30001.
       Deploy your app and access it at: http://<KIND_EIP>:30001
       ============================================================
+

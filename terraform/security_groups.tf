@@ -131,6 +131,17 @@ resource "aws_security_group" "kind_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  # -------------------------
+  # INBOUND RULE 3: ArgoCD Web UI
+  # -------------------------
+  # Port 30080 ?" NodePort exposing the ArgoCD web console
+  ingress {
+    description = "Allow ArgoCD Web UI via NodePort 30080 from anywhere"
+    from_port   = 30080
+    to_port     = 30080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   # -------------------------
   # OUTBOUND RULE: All traffic
@@ -148,3 +159,4 @@ resource "aws_security_group" "kind_sg" {
     Project = var.project_name
   }
 }
+
