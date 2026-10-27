@@ -1,6 +1,8 @@
 # 🏗️ infra-repo — Infrastructure for CI/CD Demo
 
-> Terraform + Ansible to provision and configure two AWS EC2 instances for a Jenkins CI/CD pipeline deploying to a local Kubernetes (kind) cluster.
+> **Infrastructure as Code:** Terraform + Ansible to provision and configure two AWS EC2 instances for a Jenkins CI/CD pipeline deploying to a local Kubernetes (Kind) cluster.
+>
+> 📦 **Companion Application & Delivery Repo:** The application source code, Dockerfile, 4-stage Jenkinsfile, and Kubernetes/ArgoCD deployment manifests are maintained in **[`Jenkins-CI-CD_app-repo`](https://github.com/Syed-Abdullah/Jenkins-CI-CD_app-repo)**.
 
 ---
 
